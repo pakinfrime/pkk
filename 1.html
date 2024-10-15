@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Model</title>
+    <style>
+        body, html {
+            margin: 0;
+            height: 100%;
+            display: flex;
+            justify-content: center; /* จัดกลางแนวนอน */
+            align-items: center; /* จัดกลางแนวตั้ง */
+            background-color: #f0f0f0;
+        }
+        .container {
+            text-align: center;
+            background-color: rgb(58, 212, 192);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+        }
+        button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        #webcam-container {
+            margin-top: 20px;
+        }
+        #camera-select {
+            margin-top: 10px;
+            padding: 5px;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Image Model</h1>
+        <button type="button" onclick="init()">Start &#128517;</button>
+        <div>
+            <label for="camera-select">เลือกกล้อง:</label>
+            <select id="camera-select"></select>
+        </div>
+        <div id="webcam-container"></div>
+        <div id="label-container"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    <script type="text/javascript">
+        // ลิงก์ไปยังโมเดลของคุณที่ให้มาโดย Teachable Machine
+        const URL = "https://teachablemachine.withgoogle.com/models/hE4rWRukyT/";
+
+        let model, webcam, labelContainer, maxPredictions;
+        let currentDeviceId = null;
+
+        // โหลดโมเดลและตั้งค่าเว็บแคม
+        async function init() {
+            const modelURL = URL + "model.json";
+            const metadataURL = URL + "metadata.json";
+
+            // โหลดโมเดลและเมตาดาต้า
+            model = await tmImage.load(modelURL, metadataURL);
+            maxPredictions = model.getTotalClasses();
+
+            // โหลดรายการกล้อง
+            await loadCameraOptions();
+
+            // ตั้งค่าเว็บแคมด้วยกล้องที่เลือก
+            const selectedDeviceId = document.getElementById('camera-select').value;
+            await setupWebcam(selectedDeviceId);
+
+            // เริ่มการเล่นเว็บแคมและวนลูปการพยากรณ์
+            await webcam.play();
+            window.requestAnimationFrame(loop);
+
+            // เพิ่มองค์ประกอบเว็บแคมไปยัง DOM
+            document.getElementById("webcam-container").appendChild(webcam.canvas);
+            labelContainer = document.getElementById("label-container");
+            for (let i = 0; i < maxPredictions; i++) {
+                labelContainer.appendChild(document.createElement("div"));
+            }
+
+            // เพิ่ม event listener สำหรับการเปลี่ยนกล้อง
+            document.getElementById('camera-select').addEventListener('change', async (event) => {
+                currentDeviceId = event.target.value;
+                await switchCamera(currentDeviceId);
+            });
+        }
+
+        // โหลดรายการกล้องและเพิ่มลงใน dropdown
+        async function loadCameraOptions() {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoDevices = devices.filter(device => device.kind === 'videoinput');
+            const cameraSelect = document.getElementById('camera-select');
+
+            cameraSelect.innerHTML = ''; // ล้างรายการก่อนหน้า
+
+            videoDevices.forEach((device, index) => {
+                const option = document.createElement('option');
+                option.value = device.deviceId;
+                option.text = device.label || `กล้อง ${index + 1}`;
+                cameraSelect.appendChild(option);
+            });
+
+            if (videoDevices.length === 0) {
+                const option = document.createElement('option');
+                option.value = '';
+                option.text = 'ไม่พบกล้อง';
+                cameraSelect.appendChild(option);
+            }
+        }
+
+        // ตั้งค่าเว็บแคมด้วย deviceId ที่ระบุ
+        async function setupWebcam(deviceId) {
+            if (webcam) {
+                await webcam.stop();
+            }
+
+            webcam = new tmImage.Webcam(200, 200, true); // ขนาดและ flip
+
+            const constraints = {
+                video: deviceId ? { deviceId: { exact: deviceId } } : true
+            };
+
+            await webcam.setup(constraints);
+        }
+
+        // สลับกล้องเมื่อมีการเปลี่ยนเลือก
+        async function switchCamera(deviceId) {
+            await setupWebcam(deviceId);
+            await webcam.play();
+        }
+
+        async function loop() {
+            webcam.update();
+            await predict();
+            window.requestAnimationFrame(loop);
+        }
+
+        async function predict() {
+            const prediction = await model.predict(webcam.canvas);
+            for (let i = 0; i < maxPredictions; i++) {
+                const classPrediction = prediction[i].className + ": " + prediction[i].probability.toFixed(2);
+                labelContainer.childNodes[i].innerHTML = classPrediction;
+            }
+        }
+    </script>
+
+</body>
+</html>
